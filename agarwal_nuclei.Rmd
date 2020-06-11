@@ -1,0 +1,105 @@
+---
+title: "Agarwal Nuclei Single Cell"
+author: "Peter Kilfeather"
+date: "11/06/2020"
+output: html_document
+---
+
+```{r}
+library(Seurat)
+
+## Dataset for analysis
+dataset_loc <- "/zfs/analysis/bm_rna/raw_matrices/samples"
+ids <- list.dirs("raw_matrices/samples", full.names = FALSE)[-1]
+
+d10x.data <- sapply(ids, function(i){
+  d10x <- Read10X(file.path(dataset_loc, i))
+  colnames(d10x) <- paste(sapply(strsplit(colnames(d10x),split="-"),'[[',1L),i,sep="-")
+  d10x
+})
+
+
+experiment.data <- do.call("cbind", d10x.data)
+
+nuclei <- CreateSeuratObject(
+  experiment.data,
+  project = "Agarwal Nuclei", 
+  min.cells = 3,
+  min.features = 500,
+  names.field = 2,
+  names.delim = "\\-")
+
+nuclei
+
+nuclei[["percent.mt"]] <- PercentageFeatureSet(nuclei, pattern = "^MT-")
+nuclei[["percent.ribo"]] <- PercentageFeatureSet(nuclei, pattern = "^RP[SL]")
+nuclei[["percent.mt"]]
+
+VlnPlot(nuclei, features = c("percent.mt"), ncol = 1)
+VlnPlot(nuclei, features = c("percent.ribo"), ncol = 1)
+VlnPlot(nuclei, features = c("nFeature_RNA"), ncol = 1)
+VlnPlot(nuclei, features = c("nCount_RNA"), ncol = 1)
+
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used
+# for anything calculated by the object, i.e. columns in object metadata, PC scores etc.
+
+plot1 <- FeatureScatter(nuclei, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(nuclei, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1 + plot2
+
+nuclei_subset <- subset(nuclei, subset = nFeature_RNA < 5000 & percent.mt < 5)
+nuclei_subset
+
+nuclei_subset <- NormalizeData(nuclei_subset, normalization.method = "LogNormalize", scale.factor = 10000)
+
+
+```
+
+```{r}
+nuclei_subset <- FindVariableFeatures(nuclei_subset, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(nuclei_subset), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(nuclei_subset)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+
+plot1
+plot2
+```
+
+```{r}
+all.genes <- rownames(nuclei_subset)
+nuclei_subset <- ScaleData(nuclei_subset, features = all.genes)
+
+nuclei_subset <- RunPCA(nuclei_subset, features = VariableFeatures(object = nuclei_subset))
+
+DimPlot(nuclei_subset, reduction = "pca")
+
+```
+
+```{r}
+DimHeatmap(nuclei_subset, dims = 1:3, cells = 500, balanced = TRUE)
+```
+
+```{r}
+ElbowPlot(nuclei_subset)
+
+```
+
+```{r}
+nuclei_subset <- FindNeighbors(nuclei_subset, dims = 1:20)
+
+nuclei_subset <- FindClusters(nuclei_subset, resolution = 0.5)
+
+# If you haven't installed UMAP, you can do so via reticulate::py_install(packages =
+# 'umap-learn')
+nuclei_subset <- RunUMAP(nuclei_subset, dims = 1:10)
+
+# note that you can set `label = TRUE` or use the LabelClusters function to help label
+# individual clusters
+DimPlot(nuclei_subset, reduction = "umap")
+```
+
